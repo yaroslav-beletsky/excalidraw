@@ -1,8 +1,5 @@
-import { eyeIcon } from "@excalidraw/excalidraw/components/icons";
 import { MainMenu } from "@excalidraw/excalidraw/index";
 import React, { useState, useMemo } from "react";
-
-import { isDevEnv } from "@excalidraw/common";
 
 import type { Theme } from "@excalidraw/element/types";
 
@@ -12,7 +9,6 @@ import { activeDiagramAtom } from "../github/atoms";
 
 import { LanguageList } from "../app-language/LanguageList";
 
-import { saveDebugState } from "./DebugCanvas";
 import { NewDiagramDialog } from "./NewDiagramDialog";
 
 export const AppMainMenu: React.FC<{
@@ -21,7 +17,6 @@ export const AppMainMenu: React.FC<{
   isCollabEnabled: boolean;
   theme: Theme | "system";
   setTheme: (theme: Theme | "system") => void;
-  refresh: () => void;
   getSceneContent?: () => string;
 }> = React.memo((props) => {
   const [newDialogOpen, setNewDialogOpen] = useState(false);
@@ -57,25 +52,6 @@ export const AppMainMenu: React.FC<{
         <MainMenu.DefaultItems.SearchMenu />
         <MainMenu.DefaultItems.Help />
         <MainMenu.DefaultItems.ClearCanvas />
-        <MainMenu.Separator />
-        <MainMenu.DefaultItems.Socials />
-        {isDevEnv() && (
-          <MainMenu.Item
-            icon={eyeIcon}
-            onSelect={() => {
-              if (window.visualDebug) {
-                delete window.visualDebug;
-                saveDebugState({ enabled: false });
-              } else {
-                window.visualDebug = { data: [] };
-                saveDebugState({ enabled: true });
-              }
-              props?.refresh();
-            }}
-          >
-            Visual Debug
-          </MainMenu.Item>
-        )}
         <MainMenu.Separator />
         <MainMenu.DefaultItems.Preferences />
         <MainMenu.DefaultItems.ToggleTheme
