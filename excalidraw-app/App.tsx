@@ -423,38 +423,43 @@ const ExcalidrawWrapper = () => {
   const [excalidrawAPI, excalidrawRefCallback] =
     useCallbackRefState<ExcalidrawImperativeAPI>();
 
-  // Cmd+S / Ctrl+S: flush debounce and trigger an immediate save
-  useEffect(() => {
+  // Immediate save: flush debounce and persist to GitHub
+  const triggerSave = useCallback(() => {
     if (!excalidrawAPI) {
       return;
     }
+    const activeDiagram = appJotaiStore.get(activeDiagramAtom);
+    if (!activeDiagram) {
+      return;
+    }
+    debouncedSave.flush?.();
+    const elements = excalidrawAPI.getSceneElements();
+    const appState = excalidrawAPI.getAppState();
+    const files = excalidrawAPI.getFiles();
+    const content = JSON.stringify({
+      type: "excalidraw",
+      version: 2,
+      source: "inspark-draw",
+      elements,
+      appState,
+      files,
+    });
+    saveDraw(content).catch(console.error);
+  }, [excalidrawAPI, debouncedSave, saveDraw]);
+
+  // Cmd+S / Ctrl+S keyboard shortcut
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const activeDiagram = appJotaiStore.get(activeDiagramAtom);
-      if (!activeDiagram) {
-        return;
-      }
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
-        debouncedSave.flush?.();
-        const elements = excalidrawAPI.getSceneElements();
-        const appState = excalidrawAPI.getAppState();
-        const files = excalidrawAPI.getFiles();
-        const content = JSON.stringify({
-          type: "excalidraw",
-          version: 2,
-          source: "inspark-draw",
-          elements,
-          appState,
-          files,
-        });
-        saveDraw(content).catch(console.error);
+        triggerSave();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [excalidrawAPI, debouncedSave, saveDraw]);
+  }, [triggerSave]);
 
   // T021 + T022: react to saveState changes via store subscription
   // (not useAtomValue) to prevent App re-renders cascading through tunnel-rat.
@@ -999,7 +1004,7 @@ const ExcalidrawWrapper = () => {
                   editorInterface={editorInterface}
                 />
               )}
-              <SaveIndicator />
+              <SaveIndicator onSave={triggerSave} />
               {authUser?.authenticated && (
                 <UserProfileButton user={authUser} />
               )}
