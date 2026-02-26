@@ -29,51 +29,59 @@ jobs:
       - name: Save Docker image
         run: docker save ${{ env.IMAGE_NAME }}:${{ github.sha }} | gzip > /tmp/image.tar.gz
 
-      - name: Copy image to server
+      - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Copy image to server
+        run: |
+          ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} "rm -f /tmp/image.tar.gz"
           scp -i ~/.ssh/deploy_key /tmp/image.tar.gz root@${{ secrets.DEPLOY_HOST }}:/tmp/image.tar.gz
-          rm ~/.ssh/deploy_key
 
       - name: Deploy to server
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: root
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            set -euo pipefail
+        run: |
+          ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} bash -s -- "${{ env.IMAGE_NAME }}" "${{ github.sha }}" << 'DEPLOY_SCRIPT'
+          set -euo pipefail
+          IMAGE_NAME="$1"
+          SHA="$2"
 
-            # Load the new image
-            docker load < /tmp/image.tar.gz
-            rm -f /tmp/image.tar.gz
-            docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.IMAGE_NAME }}:latest
+          # Load the new image
+          docker load < /tmp/image.tar.gz
+          rm -f /tmp/image.tar.gz
+          docker tag "${IMAGE_NAME}:${SHA}" "${IMAGE_NAME}:latest"
 
-            # Ensure docker-compose is up to date
-            mkdir -p /opt/excalidraw
-            cat > /opt/excalidraw/docker-compose.yml << 'EOF'
-            services:
-              draw:
-                image: inspark-draw:latest
-                container_name: draw
-                restart: unless-stopped
-                env_file: .env
-                networks:
-                  - inspark
+          # Ensure docker-compose is up to date
+          mkdir -p /opt/excalidraw
+          cat > /opt/excalidraw/docker-compose.yml << 'EOF'
+          services:
+            draw:
+              image: inspark-draw:latest
+              container_name: draw
+              restart: unless-stopped
+              env_file: .env
+              networks:
+                - inspark
 
-            networks:
-              inspark:
-                external: true
-            EOF
+          networks:
+            inspark:
+              external: true
+          EOF
 
-            # Restart the container
-            cd /opt/excalidraw
-            docker compose up -d --force-recreate
+          # Restart the container
+          cd /opt/excalidraw
+          docker compose up -d --force-recreate
 
-            # Cleanup dangling images
-            docker image prune -f || true
+          # Cleanup dangling images
+          docker image prune -f || true
 
-            echo "Deploy complete: ${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "Deploy complete: ${IMAGE_NAME}:${SHA}"
+          DEPLOY_SCRIPT
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
