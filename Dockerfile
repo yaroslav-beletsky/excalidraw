@@ -1,4 +1,4 @@
-FROM --platform=${BUILDPLATFORM} node:18 AS build
+FROM --platform=${BUILDPLATFORM} node:20 AS build
 
 WORKDIR /opt/node_app
 
@@ -13,7 +13,7 @@ ARG NODE_ENV=production
 
 RUN npm_config_target_arch=${TARGETARCH} yarn build:app:docker
 
-FROM --platform=${TARGETPLATFORM} node:18-alpine
+FROM --platform=${TARGETPLATFORM} node:20-alpine
 
 WORKDIR /app
 RUN npm install --no-save express@4 @octokit/rest@22
