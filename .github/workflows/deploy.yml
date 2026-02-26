@@ -1,0 +1,80 @@
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: inspark-draw
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} .
+          docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.IMAGE_NAME }}:latest
+
+      - name: Save Docker image
+        run: docker save ${{ env.IMAGE_NAME }}:${{ github.sha }} | gzip > /tmp/image.tar.gz
+
+      - name: Copy image to server
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: root
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: /tmp/image.tar.gz
+          target: /tmp/
+          strip_components: 1
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: root
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -euo pipefail
+
+            # Load the new image
+            docker load < /tmp/image.tar.gz
+            rm -f /tmp/image.tar.gz
+            docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.IMAGE_NAME }}:latest
+
+            # Ensure docker-compose is up to date
+            mkdir -p /opt/excalidraw
+            cat > /opt/excalidraw/docker-compose.yml << 'EOF'
+            services:
+              draw:
+                image: inspark-draw:latest
+                container_name: draw
+                restart: unless-stopped
+                env_file: .env
+                networks:
+                  - inspark
+
+            networks:
+              inspark:
+                external: true
+            EOF
+
+            # Restart the container
+            cd /opt/excalidraw
+            docker compose up -d --force-recreate
+
+            # Cleanup dangling images
+            docker image prune -f || true
+
+            echo "Deploy complete: ${{ env.IMAGE_NAME }}:${{ github.sha }}"
