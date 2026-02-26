@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 
 import { appJotaiStore, useSetAtom } from "../app-jotai";
 
@@ -72,6 +72,14 @@ export const useDraws = () => {
   const setActiveDiagram = useSetAtom(activeDiagramAtom);
   const setSaveState = useSetAtom(saveStateAtom);
 
+  // Guard against concurrent saves — only one save at a time.
+  // If a save is requested while one is in-flight, we queue the latest
+  // content and save it once the current save completes.
+  const saveInFlight = useRef(false);
+  const pendingSave = useRef<{ content: string; forceSha?: string } | null>(
+    null,
+  );
+
   // Fetch and store the full diagram tree from the server.
   const listDraws = useCallback(async () => {
     setTreeLoading(true);
@@ -107,8 +115,9 @@ export const useDraws = () => {
   );
 
   // Persist the current canvas content back to GitHub.
-  // Accepts an optional forceSha to override the stored SHA (e.g. after conflict resolution).
-  const saveDraw = useCallback(
+  // Serialized: only one save in-flight at a time. If called while saving,
+  // the latest content is queued and saved after the current save completes.
+  const doSave = useCallback(
     async (content: string, forceSha?: string) => {
       const activeDiagram = appJotaiStore.get(activeDiagramAtom);
       if (!activeDiagram) return;
@@ -143,6 +152,30 @@ export const useDraws = () => {
       }
     },
     [setActiveDiagram, setSaveState],
+  );
+
+  const saveDraw = useCallback(
+    async (content: string, forceSha?: string) => {
+      if (saveInFlight.current) {
+        // Another save is running — queue this one (latest wins).
+        pendingSave.current = { content, forceSha };
+        return;
+      }
+      saveInFlight.current = true;
+      try {
+        await doSave(content, forceSha);
+      } finally {
+        saveInFlight.current = false;
+        // If a save was queued while we were saving, run it now
+        // (it will read the updated SHA from the atom).
+        const queued = pendingSave.current;
+        if (queued) {
+          pendingSave.current = null;
+          saveDraw(queued.content, queued.forceSha).catch(console.error);
+        }
+      }
+    },
+    [doSave],
   );
 
   // Create a new diagram file in the repository.

@@ -423,7 +423,7 @@ const ExcalidrawWrapper = () => {
   const [excalidrawAPI, excalidrawRefCallback] =
     useCallbackRefState<ExcalidrawImperativeAPI>();
 
-  // Immediate save: flush debounce and persist to GitHub
+  // Immediate save: cancel pending debounce and persist to GitHub once
   const triggerSave = useCallback(() => {
     if (!excalidrawAPI) {
       return;
@@ -432,7 +432,9 @@ const ExcalidrawWrapper = () => {
     if (!activeDiagram) {
       return;
     }
-    debouncedSave.flush?.();
+    // Cancel any pending debounced save to avoid concurrent saves
+    // (which would cause SHA conflicts).
+    debouncedSave.cancel();
     const elements = excalidrawAPI.getSceneElements();
     const appState = excalidrawAPI.getAppState();
     const files = excalidrawAPI.getFiles();
