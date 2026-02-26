@@ -1,0 +1,41 @@
+diff --git a/node_modules/tunnel-rat/dist/index.js b/node_modules/tunnel-rat/dist/index.js
+index 3c23492..c21866b 100644
+--- a/node_modules/tunnel-rat/dist/index.js
++++ b/node_modules/tunnel-rat/dist/index.js
+@@ -25,19 +25,20 @@ function tunnel() {
+       children
+     }) => {
+       const set = useStore(state => state.set);
+-      const version = useStore(state => state.version);
+-      /* When this component mounts, we increase the store's version number.
+-      This will cause all existing rats to re-render (just like if the Out component
+-      were mapping items to a list.) The re-rendering will cause the final 
+-      order of rendered components to match what the user is expecting. */
++      /* Removed version subscription to prevent cascading re-renders.
++         When version changed (on mount of any In), ALL In components would
++         re-render, causing their layout effects to re-run and call set(),
++         which combined with React 18's useSyncExternalStore could trigger
++         infinite update loops when parent components re-render frequently. */
+ 
+       useIsomorphicLayoutEffect(() => {
+         set(state => ({
+           version: state.version + 1
+         }));
+       }, []);
+-      /* Any time the children _or_ the store's version number change, insert
+-      the specified React children into the list of rats. */
++      /* Any time the children change, insert the specified React children
++      into the list of rats. Removed version from deps to prevent the
++      cascading re-render loop. */
+ 
+       useIsomorphicLayoutEffect(() => {
+         set(({
+@@ -50,7 +51,7 @@ function tunnel() {
+         }) => ({
+           current: current.filter(c => c !== children)
+         }));
+-      }, [children, version]);
++      }, [children]);
+       return null;
+     },
+     Out: () => {

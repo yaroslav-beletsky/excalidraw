@@ -13,8 +13,12 @@ ARG NODE_ENV=production
 
 RUN npm_config_target_arch=${TARGETARCH} yarn build:app:docker
 
-FROM --platform=${TARGETPLATFORM} nginx:1.27-alpine
+FROM --platform=${TARGETPLATFORM} node:18-alpine
 
-COPY --from=build /opt/node_app/excalidraw-app/build /usr/share/nginx/html
-
-HEALTHCHECK CMD wget -q -O /dev/null http://localhost || exit 1
+WORKDIR /app
+RUN npm install --no-save express@4 @octokit/rest@22
+COPY --from=build /opt/node_app/excalidraw-app/build ./build
+COPY --from=build /opt/node_app/excalidraw-app/server.js ./server.js
+EXPOSE 80
+HEALTHCHECK CMD wget -q -O /dev/null http://localhost/api/auth/me || exit 1
+CMD ["node", "server.js"]

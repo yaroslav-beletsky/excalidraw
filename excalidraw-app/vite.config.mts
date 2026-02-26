@@ -8,9 +8,13 @@ import checker from "vite-plugin-checker";
 import { createHtmlPlugin } from "vite-plugin-html";
 import Sitemap from "vite-plugin-sitemap";
 import { woff2BrowserPlugin } from "../scripts/woff2/woff2-vite-plugins";
+import { devAuthMiddleware } from "./server/dev-auth-middleware";
+import { devDrawsMiddleware } from "./server/dev-draws-middleware";
 export default defineConfig(({ mode }) => {
-  // To load .env variables
+  // VITE_APP_* vars exposed to browser
   const envVars = loadEnv(mode, `../`);
+  // All vars (including GITHUB_PAT, GITHUB_OWNER, etc.) — server-side only
+  const allEnv = loadEnv(mode, `../`, "");
   // https://vitejs.dev/config/
   return {
     server: {
@@ -114,6 +118,29 @@ export default defineConfig(({ mode }) => {
       assetsInlineLimit: 0,
     },
     plugins: [
+      ...(envVars.VITE_APP_DEV_AUTH_MOCK === "true"
+        ? [
+            devAuthMiddleware({
+              username: envVars.VITE_APP_DEV_AUTH_USERNAME || undefined,
+              email: envVars.VITE_APP_DEV_AUTH_EMAIL || undefined,
+              name: envVars.VITE_APP_DEV_AUTH_NAME || undefined,
+            }),
+          ]
+        : []),
+      // Always load draws middleware in dev.
+      // - If GITHUB_PAT is set in .env → uses real GitHub API
+      // - Otherwise → in-memory mock (no credentials needed)
+      ...(mode === "development"
+        ? [
+            devDrawsMiddleware({
+              pat: allEnv.GITHUB_PAT,
+              owner: allEnv.GITHUB_OWNER || "inspark-me",
+              repo: allEnv.GITHUB_REPO || "docs",
+              branch: allEnv.GITHUB_BRANCH || "main",
+              drawsPath: allEnv.GITHUB_DRAWS_PATH || "draws",
+            }),
+          ]
+        : []),
       Sitemap({
         hostname: "https://excalidraw.com",
         outDir: "build",
@@ -203,10 +230,10 @@ export default defineConfig(({ mode }) => {
           maximumFileSizeToCacheInBytes: 2.3 * 1024 ** 2, // 2.3MB
         },
         manifest: {
-          short_name: "Excalidraw",
-          name: "Excalidraw",
+          short_name: "InsparkDraw",
+          name: "InsparkDraw",
           description:
-            "Excalidraw is a whiteboard tool that lets you easily sketch diagrams that have a hand-drawn feel to them.",
+            "InsparkDraw is a whiteboard tool that lets you easily sketch diagrams that have a hand-drawn feel to them.",
           icons: [
             {
               src: "android-chrome-192x192.png",

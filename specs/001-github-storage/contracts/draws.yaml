@@ -1,0 +1,396 @@
+openapi: "3.1.0"
+
+info:
+  title: InsparkDraw – GitHub Storage API
+  version: "1.0.0"
+  description: |
+    Express endpoints that proxy GitHub Contents API operations for `.excalidraw`
+    files stored in the `draws/` folder of `inspark-me/docs` (branch `main`).
+
+    **Security**: All requests must come through Nginx Forward Auth (Authentik).
+    The `X-User` header is trusted and used for commit author attribution.
+    The GitHub PAT is server-side only — never returned to the client.
+
+servers:
+  - url: /api
+    description: Same-origin Express server
+
+tags:
+  - name: draws
+    description: Diagram file CRUD operations
+
+# ─── AUTHENTICATION NOTE ────────────────────────────────────────────────────
+# No explicit auth scheme in the API — Nginx handles SSO before requests
+# reach the Express server. X-User, X-Email, X-Name headers are injected
+# by Authentik and trusted by the server.
+# ─────────────────────────────────────────────────────────────────────────────
+
+paths:
+
+  /draws:
+
+    get:
+      operationId: listDraws
+      summary: List all diagrams (hierarchical tree)
+      tags: [draws]
+      description: |
+        Returns the full contents of the `draws/` folder as a recursive tree.
+        Only `.excalidraw` files are included; other files are ignored.
+        Folders are included as `DiagramFolder` nodes with nested children.
+      responses:
+        "200":
+          description: Tree of diagram files and folders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DiagramTreeItem"
+              example:
+                - type: file
+                  name: overview.excalidraw
+                  path: draws/overview.excalidraw
+                  sha: "abc123def456"
+                  lastModified: "2026-02-25T14:30:00Z"
+                  lastModifiedBy: "yaroslav"
+                  size: 4200
+                - type: folder
+                  name: architecture
+                  path: draws/architecture
+                  children:
+                    - type: file
+                      name: backend.excalidraw
+                      path: draws/architecture/backend.excalidraw
+                      sha: "def789abc012"
+                      lastModified: "2026-02-24T10:00:00Z"
+                      lastModifiedBy: "yaroslav"
+                      size: 8100
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      operationId: createDraw
+      summary: Create a new diagram file
+      tags: [draws]
+      description: |
+        Creates a new `.excalidraw` file in the repository. The path is relative
+        to `draws/` and must not already exist. The server appends `.excalidraw`
+        to the path if not already present, and sanitizes the filename.
+        Commit message: `Create: {filename} by {X-User}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRequest"
+            example:
+              path: architecture/v2
+              content: '{"type":"excalidraw","version":2,"source":"...","elements":[],"appState":{}}'
+      responses:
+        "201":
+          description: File created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileResponse"
+        "409":
+          description: File already exists at path
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                error: "File already exists at draws/architecture/v2.excalidraw"
+                code: CONFLICT
+        "422":
+          description: Filename sanitization failed or path is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /draws/{path}:
+
+    parameters:
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+        description: |
+          Path to the file within `draws/`, relative to the draws folder.
+          Examples: `overview.excalidraw`, `architecture/backend.excalidraw`
+        example: architecture/backend.excalidraw
+
+    get:
+      operationId: getDraw
+      summary: Get a diagram's content
+      tags: [draws]
+      description: |
+        Returns the file metadata and content (decoded from base64).
+        The `sha` in the response must be stored client-side and sent
+        back with subsequent PUT or DELETE requests for conflict detection.
+      responses:
+        "200":
+          description: File metadata and excalidraw JSON content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileResponse"
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                error: "File not found: draws/missing.excalidraw"
+                code: NOT_FOUND
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    put:
+      operationId: updateDraw
+      summary: Update (save) an existing diagram
+      tags: [draws]
+      description: |
+        Updates an existing `.excalidraw` file. The `sha` field must match
+        the current blob SHA in the repository. If there is a mismatch
+        (another user saved first), GitHub returns 409 which is forwarded
+        to the client for conflict resolution.
+        Commit message: `Update: {filename} by {X-User}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRequest"
+            example:
+              content: '{"type":"excalidraw","version":2,"elements":[...]}'
+              sha: "abc123def456"
+      responses:
+        "200":
+          description: File updated. Response includes new SHA for subsequent saves.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileResponse"
+        "404":
+          description: File not found (deleted or moved since last fetch)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: |
+            Conflict — file was modified since last fetch. Client should offer
+            user a choice: reload latest version or force-save (overwrite).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                error: "Conflict: file was modified by another user"
+                code: CONFLICT
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      operationId: deleteDraw
+      summary: Delete a diagram
+      tags: [draws]
+      description: |
+        Deletes the file from the repository. The `sha` field must match
+        current blob SHA (same conflict detection as PUT).
+        Commit message: `Delete: {filename} by {X-User}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteRequest"
+            example:
+              sha: "abc123def456"
+      responses:
+        "204":
+          description: File deleted successfully
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+# ─── COMPONENT SCHEMAS ───────────────────────────────────────────────────────
+
+components:
+
+  schemas:
+
+    DiagramFile:
+      type: object
+      required: [type, name, path, sha, lastModified, lastModifiedBy, size]
+      properties:
+        type:
+          type: string
+          enum: [file]
+        name:
+          type: string
+          example: backend.excalidraw
+        path:
+          type: string
+          description: Path relative to repo root (includes draws/ prefix)
+          example: draws/architecture/backend.excalidraw
+        sha:
+          type: string
+          description: Git blob SHA for conflict detection
+          example: abc123def456
+        lastModified:
+          type: string
+          format: date-time
+          example: "2026-02-24T10:00:00Z"
+        lastModifiedBy:
+          type: string
+          example: yaroslav
+        size:
+          type: integer
+          description: File size in bytes
+          example: 8100
+
+    DiagramFolder:
+      type: object
+      required: [type, name, path, children]
+      properties:
+        type:
+          type: string
+          enum: [folder]
+        name:
+          type: string
+          example: architecture
+        path:
+          type: string
+          example: draws/architecture
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagramTreeItem"
+
+    DiagramTreeItem:
+      oneOf:
+        - $ref: "#/components/schemas/DiagramFile"
+        - $ref: "#/components/schemas/DiagramFolder"
+      discriminator:
+        propertyName: type
+
+    FileResponse:
+      type: object
+      required: [file, content]
+      properties:
+        file:
+          $ref: "#/components/schemas/DiagramFile"
+        content:
+          type: string
+          description: Raw excalidraw JSON string (decoded from GitHub base64)
+          example: '{"type":"excalidraw","version":2,"elements":[]}'
+
+    CreateRequest:
+      type: object
+      required: [path, content]
+      properties:
+        path:
+          type: string
+          description: |
+            Desired path within draws/ folder. `.excalidraw` extension is
+            appended by server if missing. Filename is sanitized.
+          example: architecture/v2
+        content:
+          type: string
+          description: excalidraw JSON string
+          example: '{"type":"excalidraw","version":2,"elements":[]}'
+
+    UpdateRequest:
+      type: object
+      required: [content, sha]
+      properties:
+        content:
+          type: string
+          description: Updated excalidraw JSON string
+        sha:
+          type: string
+          description: Current blob SHA (from last GET or PUT response)
+        message:
+          type: string
+          description: |
+            Optional commit message override. If omitted, server generates:
+            "Update: {filename} by {username}".
+
+    DeleteRequest:
+      type: object
+      required: [sha]
+      properties:
+        sha:
+          type: string
+          description: Current blob SHA
+
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+        code:
+          type: string
+          enum: [NOT_FOUND, CONFLICT, RATE_LIMITED, AUTH_ERROR, UNKNOWN]
+        retryAfter:
+          type: integer
+          description: Seconds to wait before retrying (only when code=RATE_LIMITED)
+
+# ─── SHARED RESPONSES ────────────────────────────────────────────────────────
+
+  responses:
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            error: "File not found"
+            code: NOT_FOUND
+
+    Conflict:
+      description: SHA mismatch — concurrent modification detected
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            error: "Conflict: file was modified by another user"
+            code: CONFLICT
+
+    RateLimited:
+      description: GitHub API rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            error: "GitHub API rate limit exceeded"
+            code: RATE_LIMITED
+            retryAfter: 3600
+
+    InternalError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            error: "Internal server error"
+            code: UNKNOWN

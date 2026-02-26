@@ -38,6 +38,15 @@ interface ImportMetaEnv {
 
   VITE_APP_GIT_SHA: string;
 
+  // Enable mock auth middleware for development without Authentik
+  VITE_APP_DEV_AUTH_MOCK: string;
+  // Enable mock GitHub Storage API for development without a real PAT
+  VITE_APP_GITHUB_MOCK: string;
+  // Simulated user for dev mock (set in .env.development.local)
+  VITE_APP_DEV_AUTH_USERNAME: string;
+  VITE_APP_DEV_AUTH_EMAIL: string;
+  VITE_APP_DEV_AUTH_NAME: string;
+
   MODE: string;
 
   DEV: string;

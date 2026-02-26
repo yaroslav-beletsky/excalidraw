@@ -1,10 +1,11 @@
 @import "../packages/excalidraw/css/variables.module.scss";
+@import "./inspark-theme.scss";
 
 .excalidraw {
-  --color-primary-contrast-offset: #625ee0; // to offset Chubb illusion
+  --color-primary-contrast-offset: #e86a2a; // to offset Chubb illusion (Inspark orange)
 
   &.theme--dark {
-    --color-primary-contrast-offset: #726dff; // to offset Chubb illusion
+    --color-primary-contrast-offset: #ff7853; // to offset Chubb illusion (Inspark dark orange)
   }
 
   .footer-center {
