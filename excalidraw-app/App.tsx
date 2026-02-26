@@ -86,7 +86,7 @@ import {
   appJotaiStore,
 } from "./app-jotai";
 import { saveStateAtom, activeDiagramAtom } from "./github/atoms";
-import { useDraws } from "./github/useDraws";
+import { useDraws, getFileParam } from "./github/useDraws";
 import { SaveIndicator } from "./components/FileBrowser/SaveIndicator";
 import {
   FIREBASE_STORAGE_PREFIXES,
@@ -544,6 +544,28 @@ const ExcalidrawWrapper = () => {
     },
     [excalidrawAPI],
   );
+
+  // Auto-open diagram from ?file= URL parameter on initial load
+  const fileParamHandled = useRef(false);
+  useEffect(() => {
+    if (!excalidrawAPI || fileParamHandled.current) {
+      return;
+    }
+    const fileParam = getFileParam();
+    if (!fileParam) {
+      return;
+    }
+    fileParamHandled.current = true;
+    openDraw(fileParam)
+      .then((result) => {
+        if (result) {
+          handleOpenFile(result.content);
+        }
+      })
+      .catch((err) => {
+        console.error("[App] Failed to open diagram from URL param:", err);
+      });
+  }, [excalidrawAPI, openDraw, handleOpenFile]);
 
   useEffect(() => {
     if (isDevEnv()) {

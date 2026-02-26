@@ -24,6 +24,30 @@ import type {
 // everything after that prefix, so we must not double it.
 const toApiPath = (path: string): string => path.replace(/^draws\//, "");
 
+// ---------------------------------------------------------------------------
+// URL ?file= parameter helpers
+// ---------------------------------------------------------------------------
+
+/** Read the current ?file= query parameter. */
+export const getFileParam = (): string | null => {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("file");
+};
+
+/** Update the URL to include ?file=<path> without a full page reload. */
+const setFileParam = (path: string): void => {
+  const url = new URL(window.location.href);
+  url.searchParams.set("file", path);
+  window.history.replaceState({}, "", url.toString());
+};
+
+/** Remove the ?file= parameter from the URL. */
+const clearFileParam = (): void => {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("file");
+  window.history.replaceState({}, "", url.toString());
+};
+
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, options);
   if (!res.ok) {
@@ -71,6 +95,8 @@ export const useDraws = () => {
         );
         setActiveDiagram({ file, isDirty: false });
         setSaveState({ status: "saved" });
+        setFileParam(file.path);
+        document.title = `${file.name.replace(/\.excalidraw$/, "")} — InSpark Draw`;
         return { file, content };
       } catch (err: any) {
         console.error("[useDraws] openDraw failed:", err);
@@ -132,6 +158,8 @@ export const useDraws = () => {
         });
         setActiveDiagram({ file: response.file, isDirty: false });
         setSaveState({ status: "saved" });
+        setFileParam(response.file.path);
+        document.title = `${response.file.name.replace(/\.excalidraw$/, "")} — InSpark Draw`;
         // Refresh the sidebar tree so the new file appears immediately.
         const tree = await apiFetch<DiagramTreeItem[]>("/api/draws");
         setTree(tree);
@@ -156,11 +184,13 @@ export const useDraws = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      // If the deleted file was open, clear the canvas state.
+      // If the deleted file was open, clear the canvas state and URL param.
       const activeDiagram = appJotaiStore.get(activeDiagramAtom);
       if (activeDiagram?.file.path === path) {
         setActiveDiagram(null);
         setSaveState({ status: "idle" });
+        clearFileParam();
+        document.title = "InSpark Draw";
       }
       // Refresh the sidebar tree to remove the deleted entry.
       const tree = await apiFetch<DiagramTreeItem[]>("/api/draws");
