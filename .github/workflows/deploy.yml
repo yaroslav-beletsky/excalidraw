@@ -30,14 +30,13 @@ jobs:
         run: docker save ${{ env.IMAGE_NAME }}:${{ github.sha }} | gzip > /tmp/image.tar.gz
 
       - name: Copy image to server
-        uses: appleboy/scp-action@v1
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: root
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: /tmp/image.tar.gz
-          target: /tmp/
-          strip_components: 1
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          scp -i ~/.ssh/deploy_key /tmp/image.tar.gz root@${{ secrets.DEPLOY_HOST }}:/tmp/image.tar.gz
+          rm ~/.ssh/deploy_key
 
       - name: Deploy to server
         uses: appleboy/ssh-action@v1
