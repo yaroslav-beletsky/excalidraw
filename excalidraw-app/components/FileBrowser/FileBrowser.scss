@@ -556,40 +556,5 @@
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // SaveIndicator badge
-  // ---------------------------------------------------------------------------
-
-  .SaveIndicator {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 12px;
-    font-family: var(--ui-font);
-    line-height: 1;
-    white-space: nowrap;
-    transition: opacity 0.15s;
-
-    &--saved    { color: #22c55e; }
-    &--unsaved  { color: #f59e0b; }
-    &--saving   { color: var(--color-gray-70); }
-    &--error    { color: #ef4444; }
-    &--conflict { color: #f97316; }
-
-    &--unsaved:hover,
-    &--error:hover {
-      opacity: 0.7;
-    }
-  }
-
-  .SaveIndicator__spinner {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    flex-shrink: 0;
-    border-radius: 50%;
-    border: 1.5px solid currentColor;
-    border-top-color: transparent;
-    animation: fb-spin 700ms linear infinite;
-  }
+  // SaveIndicator styles → SaveIndicator.scss
 }
