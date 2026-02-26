@@ -393,6 +393,12 @@ const ExcalidrawWrapper = () => {
   const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
   const [githubErrorMessage, setGithubErrorMessage] = useState("");
 
+  // Fingerprint of the last saved/loaded elements to detect real changes.
+  // We only mark "unsaved" when the canvas elements actually differ from
+  // what was last persisted — not on every onChange (which fires on cursor
+  // moves, selections, and programmatic updateScene calls).
+  const lastSavedFingerprint = useRef<number>(0);
+
   const debouncedSave = useRef(
     debounce((content: string) => {
       saveDraw(content).catch(console.error);
@@ -468,6 +474,18 @@ const ExcalidrawWrapper = () => {
   useEffect(() => {
     const unsub = appJotaiStore.sub(saveStateAtom, () => {
       const saveState = appJotaiStore.get(saveStateAtom);
+
+      // When save completes, snapshot the current fingerprint so
+      // subsequent onChange calls won't re-mark as "unsaved".
+      if (saveState.status === "saved" && excalidrawAPI) {
+        const els = excalidrawAPI.getSceneElements();
+        let fp = els.length;
+        for (const el of els) {
+          fp = ((fp << 5) - fp + el.version) | 0;
+        }
+        lastSavedFingerprint.current = fp;
+      }
+
       if (saveState.status === "conflict") {
         setConflictDialogOpen(true);
       }
@@ -484,7 +502,7 @@ const ExcalidrawWrapper = () => {
       }
     });
     return unsub;
-  }, []);
+  }, [excalidrawAPI]);
 
   const [, setShareDialogState] = useAtom(shareDialogStateAtom);
   const [collabAPI] = useAtom(collabAPIAtom);
@@ -532,11 +550,21 @@ const ExcalidrawWrapper = () => {
       }
       try {
         const scene = JSON.parse(content);
+        const restored = restoreElements(scene.elements ?? [], null, {
+          repairBindings: true,
+        });
+
+        // Compute fingerprint of loaded elements so onChange won't
+        // immediately mark the diagram as "unsaved".
+        let fp = restored.length;
+        for (const el of restored) {
+          fp = ((fp << 5) - fp + el.version) | 0;
+        }
+        lastSavedFingerprint.current = fp;
+
         requestAnimationFrame(() => {
           excalidrawAPI.updateScene({
-            elements: restoreElements(scene.elements ?? [], null, {
-              repairBindings: true,
-            }),
+            elements: restored,
             appState: scene.appState?.viewBackgroundColor
               ? {
                   viewBackgroundColor: scene.appState.viewBackgroundColor,
@@ -816,18 +844,28 @@ const ExcalidrawWrapper = () => {
     appState: AppState,
     files: BinaryFiles,
   ) => {
-    // Auto-save: mark as unsaved and debounce the actual GitHub save
+    // Auto-save: only mark "unsaved" when elements actually changed
+    // (not on cursor moves, selections, or programmatic updateScene).
     if (appJotaiStore.get(activeDiagramAtom)) {
-      setSaveState({ status: "unsaved" });
-      const content = JSON.stringify({
-        type: "excalidraw",
-        version: 2,
-        source: "inspark-draw",
-        elements,
-        appState,
-        files,
-      });
-      debouncedSave(content);
+      // Fast fingerprint: element count + sum of per-element versions.
+      // Version is bumped by excalidraw on every real element mutation.
+      let fp = elements.length;
+      for (const el of elements) {
+        fp = ((fp << 5) - fp + el.version) | 0;
+      }
+
+      if (fp !== lastSavedFingerprint.current) {
+        setSaveState({ status: "unsaved" });
+        const content = JSON.stringify({
+          type: "excalidraw",
+          version: 2,
+          source: "inspark-draw",
+          elements,
+          appState,
+          files,
+        });
+        debouncedSave(content);
+      }
     }
 
     if (collabAPI?.isCollaborating()) {
