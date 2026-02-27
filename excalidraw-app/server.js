@@ -19,11 +19,19 @@ app.use(
   }),
 );
 
-const octokit = new Octokit({ auth: process.env.GITHUB_PAT });
 const GITHUB_OWNER = process.env.GITHUB_OWNER || "inspark-me";
 const GITHUB_REPO = process.env.GITHUB_REPO || "docs";
 const GITHUB_BRANCH = process.env.GITHUB_BRANCH || "main";
 const GITHUB_DRAWS_PATH = process.env.GITHUB_DRAWS_PATH || "draws";
+
+// Per-user Octokit: use X-Github-Token from Authentik, fallback to env GITHUB_PAT
+function getOctokit(req) {
+  const token = req.headers["x-github-token"] || process.env.GITHUB_PAT;
+  if (!token) {
+    throw Object.assign(new Error("No GitHub token available"), { status: 401 });
+  }
+  return new Octokit({ auth: token });
+}
 
 function sanitizeFilename(input) {
   let name = input
@@ -36,7 +44,7 @@ function sanitizeFilename(input) {
   return name;
 }
 
-async function buildDrawsTree(path) {
+async function buildDrawsTree(octokit, path) {
   const { data } = await octokit.repos.getContent({
     owner: GITHUB_OWNER,
     repo: GITHUB_REPO,
@@ -49,7 +57,7 @@ async function buildDrawsTree(path) {
   const items = [];
   for (const item of data) {
     if (item.type === "dir") {
-      const children = await buildDrawsTree(item.path);
+      const children = await buildDrawsTree(octokit, item.path);
       items.push({ type: "folder", name: item.name, path: item.path, children });
     } else if (item.type === "file" && item.name.endsWith(".excalidraw")) {
       // Get commit info for lastModified/lastModifiedBy
@@ -103,7 +111,8 @@ app.use(express.json());
 // GET /api/draws — list all diagrams as a tree
 app.get("/api/draws", async (req, res) => {
   try {
-    const tree = await buildDrawsTree(GITHUB_DRAWS_PATH);
+    const octokit = getOctokit(req);
+    const tree = await buildDrawsTree(octokit, GITHUB_DRAWS_PATH);
     res.json(tree);
   } catch (err) {
     if (err.status === 404) {
@@ -122,6 +131,7 @@ app.get("/api/draws", async (req, res) => {
 app.get("/api/draws/*", async (req, res) => {
   const filePath = `${GITHUB_DRAWS_PATH}/${req.params[0]}`;
   try {
+    const octokit = getOctokit(req);
     const { data } = await octokit.repos.getContent({
       owner: GITHUB_OWNER,
       repo: GITHUB_REPO,
@@ -153,6 +163,7 @@ app.post("/api/draws", async (req, res) => {
   const filePath = `${GITHUB_DRAWS_PATH}/${sanitizedName}`;
   const message = `Create: ${sanitizedName} by ${username}`;
   try {
+    const octokit = getOctokit(req);
     const { data } = await octokit.repos.createOrUpdateFileContents({
       owner: GITHUB_OWNER,
       repo: GITHUB_REPO,
@@ -182,6 +193,7 @@ app.put("/api/draws/*", async (req, res) => {
   }
   const message = customMessage || `Update: ${filename} by ${username}`;
   try {
+    const octokit = getOctokit(req);
     const { data } = await octokit.repos.createOrUpdateFileContents({
       owner: GITHUB_OWNER,
       repo: GITHUB_REPO,
@@ -213,6 +225,7 @@ app.delete("/api/draws/*", async (req, res) => {
   }
   const message = `Delete: ${filename} by ${username}`;
   try {
+    const octokit = getOctokit(req);
     await octokit.repos.deleteFile({
       owner: GITHUB_OWNER,
       repo: GITHUB_REPO,
