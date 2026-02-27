@@ -38,14 +38,8 @@ import { useCallbackRefState } from "@excalidraw/excalidraw/hooks/useCallbackRef
 import { t } from "@excalidraw/excalidraw/i18n";
 
 import {
-  GithubIcon,
-  XBrandIcon,
-  DiscordIcon,
-  ExcalLogo,
   usersIcon,
-  exportToPlus,
   share,
-  youtubeIcon,
 } from "@excalidraw/excalidraw/components/icons";
 import { isElementLink } from "@excalidraw/element";
 import {
@@ -83,12 +77,15 @@ import {
   Provider,
   useAtom,
   useAtomValue,
+  useSetAtom,
   useAtomWithInitialValue,
   appJotaiStore,
 } from "./app-jotai";
+import { saveStateAtom, activeDiagramAtom } from "./github/atoms";
+import { useDraws, getFileParam } from "./github/useDraws";
+import { SaveIndicator } from "./components/FileBrowser/SaveIndicator";
 import {
   FIREBASE_STORAGE_PREFIXES,
-  isExcalidrawPlusSignedUser,
   STORAGE_KEYS,
   SYNC_BROWSER_TABS_TIMEOUT,
 } from "./app_constants";
@@ -100,10 +97,7 @@ import Collab, {
 import { AppFooter } from "./components/AppFooter";
 import { AppMainMenu } from "./components/AppMainMenu";
 import { AppWelcomeScreen } from "./components/AppWelcomeScreen";
-import {
-  ExportToExcalidrawPlus,
-  exportToExcalidrawPlus,
-} from "./components/ExportToExcalidrawPlus";
+// Plus export removed
 import { TopErrorBoundary } from "./components/TopErrorBoundary";
 
 import {
@@ -117,7 +111,10 @@ import { updateStaleImageStatuses } from "./data/FileManager";
 import {
   importFromLocalStorage,
   importUsernameFromLocalStorage,
+  saveUsernameToLocalStorage,
 } from "./data/localStorage";
+import { useAuth } from "./auth/useAuth";
+import { UserProfileButton } from "./components/UserProfileButton";
 
 import { loadFilesFromFirebase } from "./data/firebase";
 import {
@@ -138,11 +135,11 @@ import DebugCanvas, {
   loadSavedDebugState,
 } from "./components/DebugCanvas";
 import { AIComponents } from "./components/AI";
-import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
+// Plus iframe export removed
 
 import "./index.scss";
 
-import { ExcalidrawPlusPromoBanner } from "./components/ExcalidrawPlusPromoBanner";
+// Plus promo banner removed
 import { AppSidebar } from "./components/AppSidebar";
 
 import type { CollabAPI } from "./collab/Collab";
@@ -378,6 +375,32 @@ const ExcalidrawWrapper = () => {
 
   const editorInterface = useEditorInterface();
 
+  // auth
+  // ---------------------------------------------------------------------------
+  const authUser = useAuth();
+
+  // GitHub storage — auto-save + conflict handling
+  // ---------------------------------------------------------------------------
+  const { saveDraw, openDraw } = useDraws();
+  const setSaveState = useSetAtom(saveStateAtom);
+  // NOTE: both activeDiagramAtom and saveStateAtom are read imperatively
+  // via appJotaiStore.get() to prevent App re-renders that cascade through
+  // tunnel-rat portals (MainMenu, Sidebar, etc.) causing infinite loops.
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+  const [githubErrorMessage, setGithubErrorMessage] = useState("");
+
+  // Fingerprint of the last saved/loaded elements to detect real changes.
+  // We only mark "unsaved" when the canvas elements actually differ from
+  // what was last persisted — not on every onChange (which fires on cursor
+  // moves, selections, and programmatic updateScene calls).
+  const lastSavedFingerprint = useRef<number>(0);
+
+  const debouncedSave = useRef(
+    debounce((content: string) => {
+      saveDraw(content).catch(console.error);
+    }, 30000),
+  ).current;
+
   // initial state
   // ---------------------------------------------------------------------------
 
@@ -402,12 +425,98 @@ const ExcalidrawWrapper = () => {
   const [excalidrawAPI, excalidrawRefCallback] =
     useCallbackRefState<ExcalidrawImperativeAPI>();
 
+  // Immediate save: cancel pending debounce and persist to GitHub once
+  const triggerSave = useCallback(() => {
+    if (!excalidrawAPI) {
+      return;
+    }
+    const activeDiagram = appJotaiStore.get(activeDiagramAtom);
+    if (!activeDiagram) {
+      return;
+    }
+    // Cancel any pending debounced save to avoid concurrent saves
+    // (which would cause SHA conflicts).
+    debouncedSave.cancel();
+    const elements = excalidrawAPI.getSceneElements();
+    const appState = excalidrawAPI.getAppState();
+    const files = excalidrawAPI.getFiles();
+    const content = JSON.stringify({
+      type: "excalidraw",
+      version: 2,
+      source: "inspark-draw",
+      elements,
+      appState,
+      files,
+    });
+    saveDraw(content).catch(console.error);
+  }, [excalidrawAPI, debouncedSave, saveDraw]);
+
+  // Cmd+S / Ctrl+S keyboard shortcut
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        triggerSave();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [triggerSave]);
+
+  // T021 + T022: react to saveState changes via store subscription
+  // (not useAtomValue) to prevent App re-renders cascading through tunnel-rat.
+  useEffect(() => {
+    const unsub = appJotaiStore.sub(saveStateAtom, () => {
+      const saveState = appJotaiStore.get(saveStateAtom);
+
+      // When save completes, snapshot the current fingerprint so
+      // subsequent onChange calls won't re-mark as "unsaved".
+      if (saveState.status === "saved" && excalidrawAPI) {
+        const els = excalidrawAPI.getSceneElements();
+        let fp = els.length;
+        for (const el of els) {
+          fp = ((fp << 5) - fp + el.version) | 0;
+        }
+        lastSavedFingerprint.current = fp;
+      }
+
+      if (saveState.status === "conflict") {
+        setConflictDialogOpen(true);
+      }
+      if (saveState.status === "error") {
+        const msg = (saveState as { status: "error"; message: string }).message;
+        if (
+          msg.includes("rate limit") ||
+          msg.includes("authentication") ||
+          msg.includes("401") ||
+          msg.includes("403")
+        ) {
+          setGithubErrorMessage(msg);
+        }
+      }
+    });
+    return unsub;
+  }, [excalidrawAPI]);
+
   const [, setShareDialogState] = useAtom(shareDialogStateAtom);
   const [collabAPI] = useAtom(collabAPIAtom);
   const [isCollaborating] = useAtomWithInitialValue(isCollaboratingAtom, () => {
     return isCollaborationLink(window.location.href);
   });
   const collabError = useAtomValue(collabErrorIndicatorAtom);
+
+  // Auto-set collaboration username from auth
+  useEffect(() => {
+    if (authUser?.authenticated) {
+      const displayName = authUser.name || authUser.username;
+      saveUsernameToLocalStorage(displayName);
+      if (collabAPI) {
+        collabAPI.setUsername(displayName);
+      }
+    }
+  }, [authUser, collabAPI]);
 
   useHandleLibrary({
     excalidrawAPI,
@@ -417,6 +526,76 @@ const ExcalidrawWrapper = () => {
   });
 
   const [, forceRefresh] = useState(false);
+
+  // Stable callback for AppSidebar — reads saveState imperatively so App
+  // re-renders (from saveStateAtom) don't cascade through tunnel-rat portals.
+  const handleOpenFile = useCallback(
+    (content: string) => {
+      if (!excalidrawAPI) {
+        return;
+      }
+      const currentSaveState = appJotaiStore.get(saveStateAtom);
+      if (
+        currentSaveState.status === "unsaved" &&
+        !window.confirm(
+          "You have unsaved changes. Open this diagram anyway? Your changes will be lost.",
+        )
+      ) {
+        return;
+      }
+      try {
+        const scene = JSON.parse(content);
+        const restored = restoreElements(scene.elements ?? [], null, {
+          repairBindings: true,
+        });
+
+        // Compute fingerprint of loaded elements so onChange won't
+        // immediately mark the diagram as "unsaved".
+        let fp = restored.length;
+        for (const el of restored) {
+          fp = ((fp << 5) - fp + el.version) | 0;
+        }
+        lastSavedFingerprint.current = fp;
+
+        requestAnimationFrame(() => {
+          excalidrawAPI.updateScene({
+            elements: restored,
+            appState: scene.appState?.viewBackgroundColor
+              ? {
+                  viewBackgroundColor: scene.appState.viewBackgroundColor,
+                }
+              : undefined,
+            captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+          });
+        });
+      } catch (err) {
+        console.error("[AppSidebar] Failed to load diagram:", err);
+      }
+    },
+    [excalidrawAPI],
+  );
+
+  // Auto-open diagram from ?file= URL parameter on initial load
+  const fileParamHandled = useRef(false);
+  useEffect(() => {
+    if (!excalidrawAPI || fileParamHandled.current) {
+      return;
+    }
+    const fileParam = getFileParam();
+    if (!fileParam) {
+      return;
+    }
+    fileParamHandled.current = true;
+    openDraw(fileParam)
+      .then((result) => {
+        if (result) {
+          handleOpenFile(result.content);
+        }
+      })
+      .catch((err) => {
+        console.error("[App] Failed to open diagram from URL param:", err);
+      });
+  }, [excalidrawAPI, openDraw, handleOpenFile]);
 
   useEffect(() => {
     if (isDevEnv()) {
@@ -660,6 +839,30 @@ const ExcalidrawWrapper = () => {
     appState: AppState,
     files: BinaryFiles,
   ) => {
+    // Auto-save: only mark "unsaved" when elements actually changed
+    // (not on cursor moves, selections, or programmatic updateScene).
+    if (appJotaiStore.get(activeDiagramAtom)) {
+      // Fast fingerprint: element count + sum of per-element versions.
+      // Version is bumped by excalidraw on every real element mutation.
+      let fp = elements.length;
+      for (const el of elements) {
+        fp = ((fp << 5) - fp + el.version) | 0;
+      }
+
+      if (fp !== lastSavedFingerprint.current) {
+        setSaveState({ status: "unsaved" });
+        const content = JSON.stringify({
+          type: "excalidraw",
+          version: 2,
+          source: "inspark-draw",
+          elements,
+          appState,
+          files,
+        });
+        debouncedSave(content);
+      }
+    }
+
     if (collabAPI?.isCollaborating()) {
       collabAPI.syncElements(elements);
     }
@@ -792,45 +995,6 @@ const ExcalidrawWrapper = () => {
     );
   }
 
-  const ExcalidrawPlusCommand = {
-    label: "Excalidraw+",
-    category: DEFAULT_CATEGORIES.links,
-    predicate: true,
-    icon: <div style={{ width: 14 }}>{ExcalLogo}</div>,
-    keywords: ["plus", "cloud", "server"],
-    perform: () => {
-      window.open(
-        `${
-          import.meta.env.VITE_APP_PLUS_LP
-        }/plus?utm_source=excalidraw&utm_medium=app&utm_content=command_palette`,
-        "_blank",
-      );
-    },
-  };
-  const ExcalidrawPlusAppCommand = {
-    label: "Sign up",
-    category: DEFAULT_CATEGORIES.links,
-    predicate: true,
-    icon: <div style={{ width: 14 }}>{ExcalLogo}</div>,
-    keywords: [
-      "excalidraw",
-      "plus",
-      "cloud",
-      "server",
-      "signin",
-      "login",
-      "signup",
-    ],
-    perform: () => {
-      window.open(
-        `${
-          import.meta.env.VITE_APP_PLUS_APP
-        }?utm_source=excalidraw&utm_medium=app&utm_content=command_palette`,
-        "_blank",
-      );
-    },
-  };
-
   return (
     <div
       style={{ height: "100%" }}
@@ -849,30 +1013,6 @@ const ExcalidrawWrapper = () => {
             toggleTheme: true,
             export: {
               onExportToBackend,
-              renderCustomUI: excalidrawAPI
-                ? (elements, appState, files) => {
-                    return (
-                      <ExportToExcalidrawPlus
-                        elements={elements}
-                        appState={appState}
-                        files={files}
-                        name={excalidrawAPI.getName()}
-                        onError={(error) => {
-                          excalidrawAPI?.updateScene({
-                            appState: {
-                              errorMessage: error.message,
-                            },
-                          });
-                        }}
-                        onSuccess={() => {
-                          excalidrawAPI.updateScene({
-                            appState: { openDialog: null },
-                          });
-                        }}
-                      />
-                    );
-                  }
-                : undefined,
             },
           },
         }}
@@ -883,26 +1023,26 @@ const ExcalidrawWrapper = () => {
         autoFocus={true}
         theme={editorTheme}
         renderTopRightUI={(isMobile) => {
-          if (isMobile || !collabAPI || isCollabDisabled) {
+          if (isMobile) {
             return null;
           }
 
           return (
             <div className="excalidraw-ui-top-right">
-              {excalidrawAPI?.getEditorInterface().formFactor === "desktop" && (
-                <ExcalidrawPlusPromoBanner
-                  isSignedIn={isExcalidrawPlusSignedUser}
+              {collabError.message && <CollabError collabError={collabError} />}
+              {collabAPI && !isCollabDisabled && (
+                <LiveCollaborationTrigger
+                  isCollaborating={isCollaborating}
+                  onSelect={() =>
+                    setShareDialogState({ isOpen: true, type: "share" })
+                  }
+                  editorInterface={editorInterface}
                 />
               )}
-
-              {collabError.message && <CollabError collabError={collabError} />}
-              <LiveCollaborationTrigger
-                isCollaborating={isCollaborating}
-                onSelect={() =>
-                  setShareDialogState({ isOpen: true, type: "share" })
-                }
-                editorInterface={editorInterface}
-              />
+              <SaveIndicator onSave={triggerSave} />
+              {authUser?.authenticated && (
+                <UserProfileButton user={authUser} />
+              )}
             </div>
           );
         }}
@@ -918,8 +1058,7 @@ const ExcalidrawWrapper = () => {
           isCollaborating={isCollaborating}
           isCollabEnabled={!isCollabDisabled}
           theme={appTheme}
-          setTheme={(theme) => setAppTheme(theme)}
-          refresh={() => forceRefresh((prev) => !prev)}
+          setTheme={setAppTheme}
         />
         <AppWelcomeScreen
           onCollabDialogOpen={onCollabDialogOpen}
@@ -928,22 +1067,6 @@ const ExcalidrawWrapper = () => {
         <OverwriteConfirmDialog>
           <OverwriteConfirmDialog.Actions.ExportToImage />
           <OverwriteConfirmDialog.Actions.SaveToDisk />
-          {excalidrawAPI && (
-            <OverwriteConfirmDialog.Action
-              title={t("overwriteConfirm.action.excalidrawPlus.title")}
-              actionLabel={t("overwriteConfirm.action.excalidrawPlus.button")}
-              onClick={() => {
-                exportToExcalidrawPlus(
-                  excalidrawAPI.getSceneElements(),
-                  excalidrawAPI.getAppState(),
-                  excalidrawAPI.getFiles(),
-                  excalidrawAPI.getName(),
-                );
-              }}
-            >
-              {t("overwriteConfirm.action.excalidrawPlus.description")}
-            </OverwriteConfirmDialog.Action>
-          )}
         </OverwriteConfirmDialog>
         <AppFooter onChange={() => excalidrawAPI?.refresh()} />
         {excalidrawAPI && <AIComponents excalidrawAPI={excalidrawAPI} />}
@@ -987,7 +1110,83 @@ const ExcalidrawWrapper = () => {
           }}
         />
 
-        <AppSidebar />
+        <AppSidebar onOpenFile={handleOpenFile} />
+
+        {/* T021: Conflict dialog — SHA mismatch detected */}
+        {conflictDialogOpen && (
+          <ErrorDialog
+            onClose={() => {
+              setConflictDialogOpen(false);
+              setSaveState({ status: "unsaved" });
+            }}
+          >
+            <div>
+              <p style={{ marginBottom: "12px" }}>
+                This diagram was modified by someone else since you last saved.
+              </p>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: "6px",
+                    border: "1px solid var(--color-gray-30)",
+                    background: "transparent",
+                    cursor: "pointer",
+                  }}
+                  onClick={() => {
+                    setConflictDialogOpen(false);
+                    setSaveState({ status: "idle" });
+                    const diagram = appJotaiStore.get(activeDiagramAtom);
+                    if (diagram) {
+                      openDraw(diagram.file.path).catch(console.error);
+                    }
+                  }}
+                >
+                  Reload latest
+                </button>
+                <button
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: "6px",
+                    border: "none",
+                    background: "var(--color-primary)",
+                    color: "white",
+                    cursor: "pointer",
+                  }}
+                  onClick={() => {
+                    setConflictDialogOpen(false);
+                    setSaveState({ status: "idle" });
+                    // Force-save: get fresh SHA first then overwrite
+                    const diagram = appJotaiStore.get(activeDiagramAtom);
+                    if (diagram && excalidrawAPI) {
+                      const content = JSON.stringify({
+                        type: "excalidraw",
+                        version: 2,
+                        source: "inspark-draw",
+                        elements: excalidrawAPI.getSceneElements(),
+                        appState: excalidrawAPI.getAppState(),
+                        files: excalidrawAPI.getFiles(),
+                      });
+                      // Re-fetch SHA then save
+                      openDraw(diagram.file.path)
+                        .then(() => saveDraw(content))
+                        .catch(console.error);
+                    }
+                  }}
+                >
+                  Save anyway (overwrite)
+                </button>
+              </div>
+            </div>
+          </ErrorDialog>
+        )}
+
+        {/* T022: GitHub error notification */}
+        {githubErrorMessage && (
+          <ErrorDialog onClose={() => setGithubErrorMessage("")}>
+            {githubErrorMessage}
+          </ErrorDialog>
+        )}
 
         {errorMessage && (
           <ErrorDialog onClose={() => setErrorMessage("")}>
@@ -1059,107 +1258,6 @@ const ExcalidrawWrapper = () => {
               },
             },
             {
-              label: "GitHub",
-              icon: GithubIcon,
-              category: DEFAULT_CATEGORIES.links,
-              predicate: true,
-              keywords: [
-                "issues",
-                "bugs",
-                "requests",
-                "report",
-                "features",
-                "social",
-                "community",
-              ],
-              perform: () => {
-                window.open(
-                  "https://github.com/excalidraw/excalidraw",
-                  "_blank",
-                  "noopener noreferrer",
-                );
-              },
-            },
-            {
-              label: t("labels.followUs"),
-              icon: XBrandIcon,
-              category: DEFAULT_CATEGORIES.links,
-              predicate: true,
-              keywords: ["twitter", "contact", "social", "community"],
-              perform: () => {
-                window.open(
-                  "https://x.com/excalidraw",
-                  "_blank",
-                  "noopener noreferrer",
-                );
-              },
-            },
-            {
-              label: t("labels.discordChat"),
-              category: DEFAULT_CATEGORIES.links,
-              predicate: true,
-              icon: DiscordIcon,
-              keywords: [
-                "chat",
-                "talk",
-                "contact",
-                "bugs",
-                "requests",
-                "report",
-                "feedback",
-                "suggestions",
-                "social",
-                "community",
-              ],
-              perform: () => {
-                window.open(
-                  "https://discord.gg/UexuTaE",
-                  "_blank",
-                  "noopener noreferrer",
-                );
-              },
-            },
-            {
-              label: "YouTube",
-              icon: youtubeIcon,
-              category: DEFAULT_CATEGORIES.links,
-              predicate: true,
-              keywords: ["features", "tutorials", "howto", "help", "community"],
-              perform: () => {
-                window.open(
-                  "https://youtube.com/@excalidraw",
-                  "_blank",
-                  "noopener noreferrer",
-                );
-              },
-            },
-            ...(isExcalidrawPlusSignedUser
-              ? [
-                  {
-                    ...ExcalidrawPlusAppCommand,
-                    label: "Sign in / Go to Excalidraw+",
-                  },
-                ]
-              : [ExcalidrawPlusCommand, ExcalidrawPlusAppCommand]),
-
-            {
-              label: t("overwriteConfirm.action.excalidrawPlus.button"),
-              category: DEFAULT_CATEGORIES.export,
-              icon: exportToPlus,
-              predicate: true,
-              keywords: ["plus", "export", "save", "backup"],
-              perform: () => {
-                if (excalidrawAPI) {
-                  exportToExcalidrawPlus(
-                    excalidrawAPI.getSceneElements(),
-                    excalidrawAPI.getAppState(),
-                    excalidrawAPI.getFiles(),
-                    excalidrawAPI.getName(),
-                  );
-                }
-              },
-            },
-            {
               ...CommandPalette.defaultItems.toggleTheme,
               perform: () => {
                 setAppTheme(
@@ -1197,12 +1295,6 @@ const ExcalidrawWrapper = () => {
 };
 
 const ExcalidrawApp = () => {
-  const isCloudExportWindow =
-    window.location.pathname === "/excalidraw-plus-export";
-  if (isCloudExportWindow) {
-    return <ExcalidrawPlusIframeExport />;
-  }
-
   return (
     <TopErrorBoundary>
       <Provider store={appJotaiStore}>

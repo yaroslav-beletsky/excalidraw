@@ -1,19 +1,15 @@
-import {
-  loginIcon,
-  ExcalLogo,
-  eyeIcon,
-} from "@excalidraw/excalidraw/components/icons";
 import { MainMenu } from "@excalidraw/excalidraw/index";
-import React from "react";
-
-import { isDevEnv } from "@excalidraw/common";
+import React, { useState, useMemo } from "react";
 
 import type { Theme } from "@excalidraw/element/types";
 
-import { LanguageList } from "../app-language/LanguageList";
-import { isExcalidrawPlusSignedUser } from "../app_constants";
+import { appJotaiStore, useAtomValue } from "../app-jotai";
+import { authUserAtom } from "../auth/authAtom";
+import { activeDiagramAtom } from "../github/atoms";
 
-import { saveDebugState } from "./DebugCanvas";
+import { LanguageList } from "../app-language/LanguageList";
+
+import { NewDiagramDialog } from "./NewDiagramDialog";
 
 export const AppMainMenu: React.FC<{
   onCollabDialogOpen: () => any;
@@ -21,72 +17,110 @@ export const AppMainMenu: React.FC<{
   isCollabEnabled: boolean;
   theme: Theme | "system";
   setTheme: (theme: Theme | "system") => void;
-  refresh: () => void;
+  getSceneContent?: () => string;
 }> = React.memo((props) => {
-  return (
-    <MainMenu>
-      <MainMenu.DefaultItems.LoadScene />
-      <MainMenu.DefaultItems.SaveToActiveFile />
-      <MainMenu.DefaultItems.Export />
-      <MainMenu.DefaultItems.SaveAsImage />
-      {props.isCollabEnabled && (
-        <MainMenu.DefaultItems.LiveCollaborationTrigger
-          isCollaborating={props.isCollaborating}
-          onSelect={() => props.onCollabDialogOpen()}
+  const [newDialogOpen, setNewDialogOpen] = useState(false);
+  const [saveAsOpen, setSaveAsOpen] = useState(false);
+  const [saveAsSnapshot, setSaveAsSnapshot] = useState<{
+    name: string;
+    content: string;
+  } | null>(null);
+
+  const authUser = useAtomValue(authUserAtom);
+  // NOTE: activeDiagramAtom is read imperatively (appJotaiStore.get) instead
+  // of via useAtomValue to avoid re-rendering AppMainMenu when it changes.
+  // Re-rendering MainMenu triggers tunnel-rat's <In> infinite loop.
+
+  const isAuthenticated = authUser?.authenticated === true;
+
+  // Memoize MainMenu children so tunnel-rat's <In> receives stable references
+  // and doesn't enter an infinite re-render loop when atoms like activeDiagramAtom change.
+  const menuChildren = useMemo(
+    () => (
+      <>
+        <MainMenu.DefaultItems.LoadScene />
+        <MainMenu.DefaultItems.SaveToActiveFile />
+        <MainMenu.DefaultItems.Export />
+        <MainMenu.DefaultItems.SaveAsImage />
+        {props.isCollabEnabled && (
+          <MainMenu.DefaultItems.LiveCollaborationTrigger
+            isCollaborating={props.isCollaborating}
+            onSelect={() => props.onCollabDialogOpen()}
+          />
+        )}
+        <MainMenu.DefaultItems.CommandPalette className="highlighted" />
+        <MainMenu.DefaultItems.SearchMenu />
+        <MainMenu.DefaultItems.Help />
+        <MainMenu.DefaultItems.ClearCanvas />
+        <MainMenu.Separator />
+        <MainMenu.DefaultItems.Preferences />
+        <MainMenu.DefaultItems.ToggleTheme
+          allowSystemTheme
+          theme={props.theme}
+          onSelect={props.setTheme}
         />
-      )}
-      <MainMenu.DefaultItems.CommandPalette className="highlighted" />
-      <MainMenu.DefaultItems.SearchMenu />
-      <MainMenu.DefaultItems.Help />
-      <MainMenu.DefaultItems.ClearCanvas />
-      <MainMenu.Separator />
-      <MainMenu.ItemLink
-        icon={ExcalLogo}
-        href={`${
-          import.meta.env.VITE_APP_PLUS_LP
-        }/plus?utm_source=excalidraw&utm_medium=app&utm_content=hamburger`}
-        className=""
-      >
-        Excalidraw+
-      </MainMenu.ItemLink>
-      <MainMenu.DefaultItems.Socials />
-      <MainMenu.ItemLink
-        icon={loginIcon}
-        href={`${import.meta.env.VITE_APP_PLUS_APP}${
-          isExcalidrawPlusSignedUser ? "" : "/sign-up"
-        }?utm_source=signin&utm_medium=app&utm_content=hamburger`}
-        className="highlighted"
-      >
-        {isExcalidrawPlusSignedUser ? "Sign in" : "Sign up"}
-      </MainMenu.ItemLink>
-      {isDevEnv() && (
-        <MainMenu.Item
-          icon={eyeIcon}
-          onSelect={() => {
-            if (window.visualDebug) {
-              delete window.visualDebug;
-              saveDebugState({ enabled: false });
-            } else {
-              window.visualDebug = { data: [] };
-              saveDebugState({ enabled: true });
-            }
-            props?.refresh();
-          }}
-        >
-          Visual Debug
-        </MainMenu.Item>
-      )}
-      <MainMenu.Separator />
-      <MainMenu.DefaultItems.Preferences />
-      <MainMenu.DefaultItems.ToggleTheme
-        allowSystemTheme
-        theme={props.theme}
-        onSelect={props.setTheme}
+        <MainMenu.ItemCustom>
+          <LanguageList style={{ width: "100%" }} />
+        </MainMenu.ItemCustom>
+        <MainMenu.DefaultItems.ChangeCanvasBackground />
+        {isAuthenticated && (
+          <>
+            <MainMenu.Separator />
+            <MainMenu.Item onSelect={() => setNewDialogOpen(true)}>
+              New Diagram
+            </MainMenu.Item>
+            <MainMenu.Item
+              onSelect={() => {
+                const diagram = appJotaiStore.get(activeDiagramAtom);
+                if (diagram) {
+                  setSaveAsSnapshot({
+                    name: diagram.file.name,
+                    content:
+                      props.getSceneContent?.() ??
+                      JSON.stringify({
+                        type: "excalidraw",
+                        version: 2,
+                        source: "inspark-draw",
+                        elements: [],
+                        appState: {
+                          gridSize: null,
+                          viewBackgroundColor: "#ffffff",
+                        },
+                        files: {},
+                      }),
+                  });
+                }
+                setSaveAsOpen(true);
+              }}
+            >
+              Save As...
+            </MainMenu.Item>
+          </>
+        )}
+      </>
+    ),
+    // Only re-create children when these specific values change — NOT on every render
+    [props.isCollabEnabled, props.isCollaborating, props.theme, isAuthenticated],
+  );
+
+  return (
+    <>
+      <MainMenu>{menuChildren}</MainMenu>
+
+      <NewDiagramDialog
+        open={newDialogOpen}
+        onClose={() => setNewDialogOpen(false)}
       />
-      <MainMenu.ItemCustom>
-        <LanguageList style={{ width: "100%" }} />
-      </MainMenu.ItemCustom>
-      <MainMenu.DefaultItems.ChangeCanvasBackground />
-    </MainMenu>
+
+      <NewDiagramDialog
+        open={saveAsOpen}
+        onClose={() => {
+          setSaveAsOpen(false);
+          setSaveAsSnapshot(null);
+        }}
+        saveAsContent={saveAsSnapshot?.content}
+        saveAsCurrentName={saveAsSnapshot?.name}
+      />
+    </>
   );
 });

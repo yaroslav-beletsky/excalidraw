@@ -1,79 +1,39 @@
-import { DefaultSidebar, Sidebar, THEME } from "@excalidraw/excalidraw";
-import {
-  messageCircleIcon,
-  presentationIcon,
-} from "@excalidraw/excalidraw/components/icons";
-import { LinkButton } from "@excalidraw/excalidraw/components/LinkButton";
-import { useUIAppState } from "@excalidraw/excalidraw/context/ui-appState";
+import React from "react";
 
-import "./AppSidebar.scss";
+import { DefaultSidebar, Sidebar } from "@excalidraw/excalidraw";
 
-export const AppSidebar = () => {
-  const { theme, openSidebar } = useUIAppState();
+import { FileBrowser } from "./FileBrowser/FileBrowser";
 
+const FILES_TAB = "__files";
+
+const FilesTabIcon = () => (
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    stroke="none"
+    aria-label="Files"
+  >
+    <path d="M10 4H4c-1.11 0-2 .89-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z" />
+  </svg>
+);
+
+interface AppSidebarProps {
+  onOpenFile: (content: string) => void;
+}
+
+export const AppSidebar = React.memo(({ onOpenFile }: AppSidebarProps) => {
   return (
     <DefaultSidebar>
       <DefaultSidebar.TabTriggers>
-        <Sidebar.TabTrigger
-          tab="comments"
-          style={{ opacity: openSidebar?.tab === "comments" ? 1 : 0.4 }}
-        >
-          {messageCircleIcon}
-        </Sidebar.TabTrigger>
-        <Sidebar.TabTrigger
-          tab="presentation"
-          style={{ opacity: openSidebar?.tab === "presentation" ? 1 : 0.4 }}
-        >
-          {presentationIcon}
+        <Sidebar.TabTrigger tab={FILES_TAB} title="Files">
+          <FilesTabIcon />
         </Sidebar.TabTrigger>
       </DefaultSidebar.TabTriggers>
-      <Sidebar.Tab tab="comments">
-        <div className="app-sidebar-promo-container">
-          <div
-            className="app-sidebar-promo-image"
-            style={{
-              ["--image-source" as any]: `url(/oss_promo_comments_${
-                theme === THEME.DARK ? "dark" : "light"
-              }.jpg)`,
-              opacity: 0.7,
-            }}
-          />
-          <div className="app-sidebar-promo-text">
-            Make comments with Excalidraw+
-          </div>
-          <LinkButton
-            href={`${
-              import.meta.env.VITE_APP_PLUS_LP
-            }/plus?utm_source=excalidraw&utm_medium=app&utm_content=comments_promo#excalidraw-redirect`}
-          >
-            Sign up now
-          </LinkButton>
-        </div>
-      </Sidebar.Tab>
-      <Sidebar.Tab tab="presentation" className="px-3">
-        <div className="app-sidebar-promo-container">
-          <div
-            className="app-sidebar-promo-image"
-            style={{
-              ["--image-source" as any]: `url(/oss_promo_presentations_${
-                theme === THEME.DARK ? "dark" : "light"
-              }.svg)`,
-              backgroundSize: "60%",
-              opacity: 0.4,
-            }}
-          />
-          <div className="app-sidebar-promo-text">
-            Create presentations with Excalidraw+
-          </div>
-          <LinkButton
-            href={`${
-              import.meta.env.VITE_APP_PLUS_LP
-            }/plus?utm_source=excalidraw&utm_medium=app&utm_content=presentations_promo#excalidraw-redirect`}
-          >
-            Sign up now
-          </LinkButton>
-        </div>
+      <Sidebar.Tab tab={FILES_TAB}>
+        <FileBrowser onOpenFile={onOpenFile} />
       </Sidebar.Tab>
     </DefaultSidebar>
   );
-};
+});

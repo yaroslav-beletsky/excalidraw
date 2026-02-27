@@ -1,0 +1,191 @@
+// =============================================================================
+// Inspark Theme for Excalidraw
+// Overrides default purple/white theme with warm orange/cream palette
+// =============================================================================
+
+.excalidraw {
+  // --- Font ---
+  --ui-font: "Plus Jakarta Sans", sans-serif;
+
+  // --- Primary colors ---
+  --color-primary: #ff7833;
+  --color-primary-darker: #e86a2a;
+  --color-primary-darkest: #d05e22;
+  --color-primary-light: #fff5e9;
+  --color-primary-light-darker: #ffeedb;
+  --color-primary-hover: #e86a2a;
+  --color-selection: #ff7833;
+  --color-promo: #ff7833;
+
+  // --- Surface / background ---
+  --color-surface-high: #fff5e9;
+  --color-surface-mid: #faf0e1;
+  --color-surface-low: #f4e3d1;
+  --color-surface-lowest: #f6ebdf;
+  --color-on-surface: #391c04;
+  --color-surface-primary-container: #ffeedb;
+  --color-on-primary-container: #5a2800;
+
+  --island-bg-color: #faf0e1;
+  --island-bg-color-alt: #faf0e1;
+  --default-bg-color: #f6ebdf;
+  --input-bg-color: #faf0e1;
+  --popup-bg-color: #faf0e1;
+  --popup-secondary-bg-color: #f4e3d1;
+  --sidebar-bg-color: #faf0e1;
+
+  // --- Brand states ---
+  --color-brand-hover: #e86a2a;
+  --color-brand-active: #d05e22;
+  --button-hover-bg: #fff5e9;
+  --button-active-bg: #ffeedb;
+  --button-active-border: #d05e22;
+  --default-border-color: #e8d5c4;
+
+  // --- Borders ---
+  --input-border-color: #bb9b87;
+  --color-border-outline: #bb9b87;
+  --color-border-outline-variant: #d4b9a5;
+  --dialog-border-color: #d4b9a5;
+  --sidebar-border-color: #e8d5c4;
+  --avatar-border-color: #d4b9a5;
+
+  // --- Border radius ---
+  --border-radius-md: 0.7rem;
+  --border-radius-lg: 0.9rem;
+
+  // --- Logo ---
+  --color-logo-icon: #ff7833;
+  --color-logo-text: #391c04;
+
+  // --- Links ---
+  --link-color: #ff7833;
+  --link-color-hover: #e86a2a;
+  --link-color-active: #ffbe89;
+
+  // --- Focus ---
+  --focus-highlight-color: #ffbe89;
+  --select-highlight-color: #ff7833;
+
+  // --- Danger ---
+  --color-danger: #e54b4f;
+  --color-danger-dark: #e54b4f;
+  --color-danger-darker: #d04044;
+  --color-danger-darkest: #b83539;
+
+  // --- Text ---
+  --text-primary-color: #391c04;
+  --popup-text-color: #391c04;
+  --input-label-color: #6b4d38;
+
+  // --- Scrollbar ---
+  --scrollbar-thumb: #d4b9a5;
+  --scrollbar-thumb-hover: #bb9b87;
+
+  // --- Shadows (warmer tint) ---
+  --shadow-island: 0px 0px 1px 0px rgba(57, 28, 4, 0.15),
+    0px 0px 3px 0px rgba(57, 28, 4, 0.07),
+    0px 7px 14px 0px rgba(57, 28, 4, 0.04);
+
+  // --- Muted ---
+  --color-muted: #d4b9a5;
+  --color-muted-darker: #9b7a63;
+
+  // --- Warning (keep warm) ---
+  --color-warning: #fceeca;
+  --color-warning-dark: #f5c354;
+
+  // --- Slider ---
+  --color-slider-track: hsl(25, 100%, 90%);
+
+  // --- Badge ---
+  --color-badge: #0b6513;
+  --background-color-badge: #d3ffd2;
+
+  // =========================================================================
+  // Dark theme
+  // =========================================================================
+  &.theme--dark {
+    // --- Primary colors ---
+    --color-primary: #FF7833;
+    --color-primary-darker: #e86a2a;
+    --color-primary-darkest: #d05e22;
+    --color-primary-light: #3d2a1f;
+    --color-primary-light-darker: #4a3020;
+    --color-primary-hover: #e86a2a;
+    --color-selection: #FF7833;
+    --color-promo: #FF7833;
+
+    // --- Surface / background (lighter, softer grays) ---
+    --color-surface-high: #4a4a50;
+    --color-surface-mid: #3a3c42;
+    --color-surface-low: #353638;
+    --color-surface-lowest: #2c2c30;
+    --color-on-surface: #f0f0f0;
+    --color-surface-primary-container: #5a3e2a;
+    --color-on-primary-container: #ffddcc;
+
+    --island-bg-color: #3e4045;
+    --island-bg-color-alt: #3a3c42;
+    --default-bg-color: #333338;
+    --input-bg-color: #333338;
+    --popup-secondary-bg-color: #3a3c42;
+    --sidebar-bg-color: #3e4045;
+
+    // --- Brand states ---
+    --color-brand-hover: #ff7853;
+    --color-brand-active: #ff9570;
+    --button-hover-bg: #4a4a50;
+    --button-active-bg: #5a3e2a;
+    --button-active-border: #ff9570;
+    --default-border-color: #4a4a50;
+
+    // --- Borders ---
+    --input-border-color: #555558;
+    --color-border-outline: #606065;
+    --color-border-outline-variant: #4a4a50;
+    --dialog-border-color: #555558;
+    --sidebar-border-color: #4a4a50;
+    --avatar-border-color: #555558;
+
+    // --- Border radius ---
+    --border-radius-md: 0.7rem;
+    --border-radius-lg: 0.9rem;
+
+    // --- Logo ---
+    --color-logo-text: #f0f0f0;
+
+    // --- Links ---
+    --link-color: #ff7853;
+    --link-color-hover: #ff9570;
+
+    // --- Focus ---
+    --focus-highlight-color: #804020;
+    --select-highlight-color: #ff5b3a;
+
+    // --- Danger ---
+    --color-danger: #ff5050;
+    --color-danger-dark: #672120;
+    --color-danger-darker: #8f2625;
+    --color-danger-darkest: #ac2b29;
+
+    // --- Text ---
+    --text-primary-color: #f0f0f0;
+    --popup-text-color: #f0f0f0;
+    --input-label-color: #a0a0a0;
+
+    // --- Scrollbar ---
+    --scrollbar-thumb: #555558;
+    --scrollbar-thumb-hover: #606065;
+
+    // --- Muted ---
+    --color-muted: #555558;
+    --color-muted-darker: #a0a0a0;
+
+    // --- Slider ---
+    --color-slider-track: hsl(15, 50%, 30%);
+
+    // --- Mobile ---
+    --mobile-action-button-bg: var(--island-bg-color);
+  }
+}

@@ -1,0 +1,93 @@
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: inspark-draw
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} .
+          docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.IMAGE_NAME }}:latest
+
+      - name: Save Docker image
+        run: docker save ${{ env.IMAGE_NAME }}:${{ github.sha }} | gzip > /tmp/image.tar.gz
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Copy image to server
+        run: |
+          ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} "rm -f /tmp/image.tar.gz"
+          scp -i ~/.ssh/deploy_key /tmp/image.tar.gz root@${{ secrets.DEPLOY_HOST }}:/tmp/image.tar.gz
+
+      - name: Deploy to server
+        run: |
+          ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} bash << 'DEPLOY_SCRIPT'
+          set -euo pipefail
+
+          IMAGE_NAME="inspark-draw"
+          SHA="${{ github.sha }}"
+
+          # Load the new image
+          docker load < /tmp/image.tar.gz
+          rm -f /tmp/image.tar.gz
+          docker tag "${IMAGE_NAME}:${SHA}" "${IMAGE_NAME}:latest"
+
+          # Stop and remove old container if it exists outside compose
+          docker stop draw 2>/dev/null || true
+          docker rm draw 2>/dev/null || true
+
+          # Write docker-compose.yml
+          mkdir -p /opt/excalidraw
+          cat > /opt/excalidraw/docker-compose.yml <<'COMPOSE'
+          services:
+            draw:
+              image: inspark-draw:latest
+              container_name: draw
+              restart: unless-stopped
+              env_file: .env
+              networks:
+                - inspark
+
+          networks:
+            inspark:
+              external: true
+          COMPOSE
+
+          # Fix indentation (heredoc preserves leading spaces)
+          sed -i 's/^          //' /opt/excalidraw/docker-compose.yml
+
+          # Start the container
+          cd /opt/excalidraw
+          docker compose up -d --force-recreate
+
+          # Cleanup dangling images
+          docker image prune -f || true
+
+          echo "Deploy complete: ${IMAGE_NAME}:${SHA}"
+          DEPLOY_SCRIPT
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
