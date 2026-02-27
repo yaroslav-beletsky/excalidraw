@@ -16,7 +16,7 @@ RUN npm_config_target_arch=${TARGETARCH} yarn build:app:docker
 FROM --platform=${TARGETPLATFORM} node:20-alpine
 
 WORKDIR /app
-RUN npm install --no-save express@4 @octokit/rest@22
+RUN npm install --no-save express@4 @octokit/rest@22 http-proxy-middleware@3
 COPY --from=build /opt/node_app/excalidraw-app/build ./build
 COPY --from=build /opt/node_app/excalidraw-app/server.js ./server.js
 EXPOSE 80

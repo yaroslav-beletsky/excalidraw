@@ -27,6 +27,14 @@
         "--context",
         "ide-assistant"
       ]
+    },
+    "excalidraw": {
+      "command": "npx",
+      "args": ["-y", "mcp-excalidraw-server@latest"],
+      "env": {
+        "EXPRESS_SERVER_URL": "https://draw.services.inspark.me/canvas",
+        "ENABLE_CANVAS_SYNC": "true"
+      }
     }
   }
 }

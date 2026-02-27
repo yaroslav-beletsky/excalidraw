@@ -1,10 +1,23 @@
 const express = require("express");
 const path = require("path");
 const { Octokit } = require("@octokit/rest");
+const { createProxyMiddleware } = require("http-proxy-middleware");
 
 const app = express();
 const PORT = process.env.PORT || 80;
 const buildDir = path.join(__dirname, "build");
+
+// MCP Canvas proxy — proxies /canvas/* to mcp-canvas container (including WebSocket)
+const MCP_CANVAS_URL = process.env.MCP_CANVAS_URL || "http://mcp-canvas:3000";
+app.use(
+  "/canvas",
+  createProxyMiddleware({
+    target: MCP_CANVAS_URL,
+    changeOrigin: true,
+    pathRewrite: { "^/canvas": "" },
+    ws: true,
+  }),
+);
 
 const octokit = new Octokit({ auth: process.env.GITHUB_PAT });
 const GITHUB_OWNER = process.env.GITHUB_OWNER || "inspark-me";
