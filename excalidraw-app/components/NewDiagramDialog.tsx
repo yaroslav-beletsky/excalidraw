@@ -3,6 +3,10 @@ import { createPortal } from "react-dom";
 
 import { sanitizeFilename } from "../github/sanitize";
 import { useDraws } from "../github/useDraws";
+import { TEMPLATES } from "./diagramTemplates";
+import type { DiagramTemplate } from "./diagramTemplates";
+
+import "./NewDiagramDialog.scss";
 
 interface NewDiagramDialogProps {
   open: boolean;
@@ -10,15 +14,6 @@ interface NewDiagramDialogProps {
   saveAsContent?: string;
   saveAsCurrentName?: string;
 }
-
-const EMPTY_EXCALIDRAW = JSON.stringify({
-  type: "excalidraw",
-  version: 2,
-  source: "inspark-draw",
-  elements: [],
-  appState: { gridSize: null, viewBackgroundColor: "#ffffff" },
-  files: {},
-});
 
 /**
  * A portal container in document.body that mirrors the .excalidraw theme classes
@@ -64,6 +59,10 @@ export const NewDiagramDialog: React.FC<NewDiagramDialogProps> = ({
   );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<DiagramTemplate>(
+    TEMPLATES[0],
+  );
+  const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const { createDraw } = useDraws();
 
@@ -76,9 +75,23 @@ export const NewDiagramDialog: React.FC<NewDiagramDialogProps> = ({
     if (open) {
       setName(saveAsCurrentName?.replace(/\.excalidraw$/, "") ?? "");
       setError(null);
+      setSelectedTemplate(TEMPLATES[0]);
+      setNameManuallyEdited(false);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [open, saveAsCurrentName]);
+
+  const handleTemplateSelect = (template: DiagramTemplate) => {
+    setSelectedTemplate(template);
+    if (!nameManuallyEdited) {
+      setName(template.defaultName);
+    }
+  };
+
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setName(e.target.value);
+    setNameManuallyEdited(true);
+  };
 
   const handleSubmit = async () => {
     const trimmed = name.trim();
@@ -89,7 +102,10 @@ export const NewDiagramDialog: React.FC<NewDiagramDialogProps> = ({
     setError(null);
     setLoading(true);
     try {
-      await createDraw(trimmed, isSaveAs ? saveAsContent! : EMPTY_EXCALIDRAW);
+      await createDraw(
+        trimmed,
+        isSaveAs ? saveAsContent! : selectedTemplate.content,
+      );
       onClose();
     } catch (err: any) {
       if (err.code === "CONFLICT") {
@@ -115,43 +131,44 @@ export const NewDiagramDialog: React.FC<NewDiagramDialogProps> = ({
   }
 
   return createPortal(
-    <div
-      onClick={handleBackdropClick}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 10000,
-        background: "rgba(0,0,0,0.4)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
+    <div className="NewDiagramDialog__backdrop" onClick={handleBackdropClick}>
       <div
-        className="Island"
-        style={{
-          borderRadius: "var(--border-radius-lg, 12px)",
-          padding: "24px",
-          width: "360px",
-          boxShadow: "var(--modal-shadow, 0 20px 60px rgba(0,0,0,0.3))",
-          display: "flex",
-          flexDirection: "column",
-          gap: "16px",
-          border: "1px solid var(--dialog-border-color, transparent)",
-        }}
+        className={`NewDiagramDialog${isSaveAs ? " NewDiagramDialog--saveAs" : ""}`}
       >
-        <h3
-          style={{
-            margin: 0,
-            fontSize: "1rem",
-            fontWeight: 600,
-            color: "var(--text-primary-color)",
-            borderBottom: "1px solid var(--dialog-border-color)",
-            paddingBottom: "0.75rem",
-          }}
-        >
+        <h3 className="NewDiagramDialog__title">
           {isSaveAs ? "Save As" : "New Diagram"}
         </h3>
+
+        {!isSaveAs && (
+          <div className="NewDiagramDialog__templates">
+            {TEMPLATES.map((tmpl) => {
+              const Icon = tmpl.icon;
+              return (
+                <button
+                  key={tmpl.id}
+                  type="button"
+                  className={`NewDiagramDialog__template-card${
+                    selectedTemplate.id === tmpl.id
+                      ? " NewDiagramDialog__template-card--selected"
+                      : ""
+                  }`}
+                  onClick={() => handleTemplateSelect(tmpl)}
+                  aria-pressed={selectedTemplate.id === tmpl.id}
+                >
+                  <span className="NewDiagramDialog__template-icon">
+                    <Icon />
+                  </span>
+                  <span className="NewDiagramDialog__template-label">
+                    {tmpl.label}
+                  </span>
+                  <span className="NewDiagramDialog__template-desc">
+                    {tmpl.description}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <div className="ExcTextField ExcTextField--fullWidth">
           <div className="ExcTextField__label">Diagram name</div>
@@ -160,10 +177,14 @@ export const NewDiagramDialog: React.FC<NewDiagramDialogProps> = ({
               ref={inputRef}
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={handleNameChange}
               onKeyDown={(e) => {
-                if (e.key === "Enter") handleSubmit();
-                if (e.key === "Escape") onClose();
+                if (e.key === "Enter") {
+                  handleSubmit();
+                }
+                if (e.key === "Escape") {
+                  onClose();
+                }
               }}
               placeholder="e.g. architecture"
             />
@@ -171,28 +192,16 @@ export const NewDiagramDialog: React.FC<NewDiagramDialogProps> = ({
         </div>
 
         {sanitized && (
-          <div
-            style={{
-              fontSize: "12px",
-              color: "var(--color-gray-60)",
-              marginTop: "-8px",
-            }}
-          >
-            {`→ draws/${sanitized}`}
+          <div className="NewDiagramDialog__path-preview">
+            {`\u2192 draws/${sanitized}`}
           </div>
         )}
 
-        {error && (
-          <div style={{ fontSize: "13px", color: "var(--color-danger)" }}>
-            {error}
-          </div>
-        )}
+        {error && <div className="NewDiagramDialog__error">{error}</div>}
 
-        <div
-          style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}
-        >
+        <div className="NewDiagramDialog__actions">
           <button
-            className="Dialog__action-button"
+            className="NewDiagramDialog__btn NewDiagramDialog__btn--secondary"
             onClick={onClose}
             disabled={loading}
             type="button"
@@ -200,11 +209,10 @@ export const NewDiagramDialog: React.FC<NewDiagramDialogProps> = ({
             Cancel
           </button>
           <button
-            className="Dialog__action-button Dialog__action-button--primary"
+            className="NewDiagramDialog__btn NewDiagramDialog__btn--primary"
             onClick={handleSubmit}
             disabled={loading || !name.trim()}
             type="button"
-            style={{ opacity: loading || !name.trim() ? 0.6 : 1 }}
           >
             {loading ? "Creating..." : isSaveAs ? "Save Copy" : "Create"}
           </button>

@@ -7,12 +7,15 @@ import type {
   DiagramTreeItem,
 } from "../../github/types";
 
+export type SortMode = "name" | "date";
+
 interface FileNodeProps {
   item: DiagramTreeItem;
   depth: number;
   activeFilePath: string | null;
   onFileClick: (file: DiagramFile) => void;
   onDeleteClick?: (file: DiagramFile) => void;
+  sortMode?: SortMode;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,13 +96,19 @@ const formatRelativeTime = (isoDate: string): string => {
   return `${days}d ago`;
 };
 
-const sortChildren = (children: DiagramTreeItem[]): DiagramTreeItem[] => {
+const sortChildren = (children: DiagramTreeItem[], mode: SortMode = "name"): DiagramTreeItem[] => {
   return [...children].sort((a, b) => {
+    // Folders always first
     if (a.type === "folder" && b.type === "file") {
       return -1;
     }
     if (a.type === "file" && b.type === "folder") {
       return 1;
+    }
+    if (mode === "date" && a.type === "file" && b.type === "file") {
+      const aFile = a as DiagramFile;
+      const bFile = b as DiagramFile;
+      return new Date(bFile.lastModified).getTime() - new Date(aFile.lastModified).getTime();
     }
     return a.name.localeCompare(b.name);
   });
@@ -115,13 +124,14 @@ export const FileNode: React.FC<FileNodeProps> = ({
   activeFilePath,
   onFileClick,
   onDeleteClick,
+  sortMode = "name",
 }) => {
   const [isExpanded, setIsExpanded] = useState(depth === 0);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   if (item.type === "folder") {
     const folder = item as DiagramFolder;
-    const sorted = sortChildren(folder.children);
+    const sorted = sortChildren(folder.children, sortMode);
 
     return (
       <div className="FileNode FileNode--folder">
@@ -160,6 +170,7 @@ export const FileNode: React.FC<FileNodeProps> = ({
                 activeFilePath={activeFilePath}
                 onFileClick={onFileClick}
                 onDeleteClick={onDeleteClick}
+                sortMode={sortMode}
               />
             ))}
           </div>

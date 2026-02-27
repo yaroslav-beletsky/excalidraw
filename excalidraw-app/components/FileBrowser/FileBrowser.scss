@@ -8,6 +8,16 @@
   to   { transform: rotate(360deg); }
 }
 
+@keyframes fb-skeleton-shimmer {
+  0%   { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+
+@keyframes fb-empty-enter {
+  from { opacity: 0; transform: scale(0.9); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
 .excalidraw {
 
   // ---------------------------------------------------------------------------
@@ -47,6 +57,42 @@
     justify-content: space-between;
     padding: 2px 4px 6px 6px;
     flex-shrink: 0;
+  }
+
+  .FileBrowser__header-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .FileBrowser__sort-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--color-gray-70);
+    transition: background-color 120ms ease, color 120ms ease;
+
+    svg { pointer-events: none; }
+
+    &:hover {
+      background: var(--color-surface-mid);
+      color: var(--color-primary);
+    }
+
+    &--active {
+      color: var(--color-primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 1px;
+    }
   }
 
   .FileBrowser__header-title {
@@ -96,7 +142,127 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Loading state
+  // Search bar
+  // ---------------------------------------------------------------------------
+
+  .FileBrowser__search {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 2px 6px;
+    padding: 5px 8px;
+    background: var(--input-bg-color, #fff);
+    border: 1px solid var(--default-border-color, rgba(0, 0, 0, 0.12));
+    border-radius: 8px;
+    flex-shrink: 0;
+    transition: border-color 150ms ease;
+
+    &:focus-within {
+      border-color: var(--color-primary);
+    }
+
+    svg {
+      flex-shrink: 0;
+      color: var(--color-gray-70);
+    }
+  }
+
+  .FileBrowser__search-input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    font-size: 12px;
+    font-family: var(--ui-font);
+    color: var(--text-primary-color);
+    outline: none;
+    min-width: 0;
+
+    &::placeholder {
+      color: var(--color-gray-70);
+      opacity: 0.7;
+    }
+  }
+
+  .FileBrowser__search-clear {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    background: var(--color-surface-mid);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    color: var(--color-gray-70);
+    padding: 0;
+    flex-shrink: 0;
+    transition: background-color 100ms ease, color 100ms ease;
+
+    svg { pointer-events: none; }
+
+    &:hover {
+      background: var(--color-surface-high);
+      color: var(--text-primary-color);
+    }
+  }
+
+  .FileBrowser__search-empty {
+    padding: 16px 12px;
+    font-size: 12px;
+    font-style: italic;
+    color: var(--color-gray-70);
+    text-align: center;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Skeleton loading state
+  // ---------------------------------------------------------------------------
+
+  .FileBrowser__skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px 0;
+    flex: 1;
+  }
+
+  .FileBrowser__skeleton-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 6px;
+  }
+
+  .FileBrowser__skeleton-icon {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    background: linear-gradient(
+      90deg,
+      var(--color-surface-mid) 0%,
+      var(--color-surface-high) 50%,
+      var(--color-surface-mid) 100%
+    );
+    background-size: 200px 100%;
+    animation: fb-skeleton-shimmer 1.5s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+
+  .FileBrowser__skeleton-text {
+    height: 12px;
+    border-radius: 6px;
+    background: linear-gradient(
+      90deg,
+      var(--color-surface-mid) 0%,
+      var(--color-surface-high) 50%,
+      var(--color-surface-mid) 100%
+    );
+    background-size: 200px 100%;
+    animation: fb-skeleton-shimmer 1.5s ease-in-out infinite;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Loading state (fallback text)
   // ---------------------------------------------------------------------------
 
   .FileBrowser__loading {
@@ -128,15 +294,16 @@
     color: var(--color-gray-70);
 
     &-icon {
-      width: 44px;
-      height: 44px;
+      width: 56px;
+      height: 56px;
       display: flex;
       align-items: center;
       justify-content: center;
       color: var(--color-primary);
-      opacity: 0.35;
+      opacity: 0.4;
+      animation: fb-empty-enter 300ms ease forwards;
 
-      svg { width: 40px; height: 40px; }
+      svg { width: 48px; height: 48px; }
     }
 
     &-title {
